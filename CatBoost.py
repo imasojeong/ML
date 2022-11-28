@@ -29,7 +29,7 @@ def classifier_eval(y_test, y_pred):
 
 
 # 모델 선언 예시
-model = CatBoostClassifier(n_estimators=500, learning_rate=0.2, max_depth=4, random_state=32)
+model = CatBoostClassifier(n_estimators=50, learning_rate=0.2, max_depth=4, random_state=32)
 
 # 데이터 불러오기
 dataset = np.loadtxt("C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv", delimiter=",", skiprows=1, dtype=np.float32)
@@ -46,14 +46,6 @@ kf = StratifiedKFold(n_splits=10, shuffle=False)
 for train_index, test_index in kf.split(X_all, y_all):
     X_train, X_test = X_all[train_index], X_all[test_index]
     y_train, y_test = y_all[train_index], y_all[test_index]
-
-    # SMOTE(학습데이터만 진행)
-    smote = SMOTE(random_state=42)
-    X_train, y_train = smote.fit_resample(X_train, y_train)
-
-    # 정규화 - MinMaxScaler()
-    minmax = MinMaxScaler()
-    X_all = minmax.fit_transform(X_all)
 
     # 모델 학습
     model.fit(X_train, y_train)

@@ -5,7 +5,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 import torch.nn.functional as F
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 
 accuracy_list = []
 precision_list = []
@@ -29,7 +29,7 @@ def classifier_eval(y_test, y_pred):
 
 
 # 모델 선언 예시
-model = XGBClassifier(n_estimators=50, learning_rate=0.2, max_depth=4, random_state=32)
+model = LGBMClassifier(n_estimators=50, learning_rate=0.2, max_depth=4, random_state=32)
 
 # 데이터 불러오기
 dataset = np.loadtxt("C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv", delimiter=",", skiprows=1, dtype=np.float32)

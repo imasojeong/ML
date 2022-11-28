@@ -37,42 +37,69 @@ zero.improve_reproducibility(seed=123456)
 
 
 # 데이터 DataFrame으로 불러오기
-# dataset = pd.read_csv('C:/Users/AISELab/Desktop/small_airline-passenger-satisfaction.csv', encoding='utf-8')
+dataset = pd.read_csv('C:/Users/AISELab/Desktop/airline-passenger-satisfaction.csv', encoding='utf-8')
+
+# 데이터 형태 확인
+print(dataset.info)
+
+# 결측치 확인
+print(dataset.isna().sum())
+
+# 결측치 처리(평균으로 대체)
+dataset['Arrival Delay in Minutes'] = dataset['Arrival Delay in Minutes'].fillna(dataset['Arrival Delay in Minutes'].mean())
+print(dataset.isna().sum())
+
+# 레이블 인코딩
+le = LabelEncoder()
+for col in ['Gender', 'Customer Type', 'Type of Travel', 'Class', 'satisfaction']:
+    dataset[col] = le.fit_transform(dataset[col])
+print(dataset)
+
+# 필요없는 feature 제거
+dataset = dataset.drop(['Unnamed: 0', 'id'], axis=1)
+
+# 이상치 제거
+# q1 = dataset['Flight Distance'].quantile(0.25)
+# q3 = dataset['Flight Distance'].quantile(0.75)
+# iqr = q3 - q1
+# condition = dataset['Flight Distance'] > q3 + 1.5 * iqr
+# a = dataset[condition].index
+# dataset.drop(a, inplace=True)
 #
-# # 데이터 형태 확인
-# print(dataset.info)
+# q1 = dataset['Departure Delay in Minutes'].quantile(0.25)
+# q3 = dataset['Departure Delay in Minutes'].quantile(0.75)
+# iqr = q3 - q1
+# condition = dataset['Departure Delay in Minutes'] > q3 + 1.5 * iqr
+# a = dataset[condition].index
+# dataset.drop(a, inplace=True)
 #
-# # 결측치 확인
-# print(dataset.isna().sum())
+# q1 = dataset['Arrival Delay in Minutes'].quantile(0.25)
+# q3 = dataset['Arrival Delay in Minutes'].quantile(0.75)
+# iqr = q3 - q1
 #
-# # 결측치 처리(평균으로 대체)
-# dataset['Arrival Delay in Minutes'] = dataset['Arrival Delay in Minutes'].fillna(dataset['Arrival Delay in Minutes'].mean())
-# print(dataset.isna().sum())
-#
-# # 레이블 인코딩
-# le = LabelEncoder()
-# for col in ['Gender', 'Customer Type', 'Type of Travel', 'Class', 'satisfaction']:
-#     dataset[col] = le.fit_transform(dataset[col])
-# print(dataset)
-#
-# # 필요없는 feature 제거
-# dataset = dataset.drop(['Unnamed: 0', 'id'], axis=1)
-#
+# condition = dataset['Arrival Delay in Minutes'] > q3 + 1.5 * iqr
+# a = dataset[condition].index
+# dataset.drop(a, inplace=True)
+
+
+# 클래스 불균형 확인 (심각한 클래스 불균형 아님 - SMOTE 적용 X)
+# print(dataset['satisfaction'].value_counts())
+
 # # csv로 내보내기
-# dataset.to_csv('C:/Users/AISELab/Desktop/new_small_airline-passenger-satisfaction.csv', index=False)
-
+dataset.to_csv('C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv', index=False)
+#
 # # 데이터 불러오기
-# dataset = np.loadtxt("C:/Users/AISELab/Desktop/new_small_airline-passenger-satisfaction.csv", delimiter=",", skiprows=1, dtype=np.float32)
-dataset = np.loadtxt("C:/Users/AISELab/Desktop/EQ.csv", delimiter=",", skiprows=1, dtype=np.float32)
-
-# 이진 분류 명시
+dataset = np.loadtxt("C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv", delimiter=",", skiprows=1, dtype=np.float32)
+# # dataset = np.loadtxt("C:/Users/AISELab/Desktop/EQ.csv", delimiter=",", skiprows=1, dtype=np.float32)
+#
+# # 이진 분류 명시
 task_type = 'binclass'
 
 assert task_type in ['binclass', 'multiclass', 'regression']
 
 # X, y 분류
-X_all = dataset[:, :61]
-y_all = dataset[:, 61]
+X_all = dataset[:, :22]
+y_all = dataset[:, 22]
 
 if task_type != 'regression':
     y_all = LabelEncoder().fit_transform(y_all).astype('int64')
@@ -92,10 +119,12 @@ for train_index, test_index in kf.split(X_all, y_all):
     smote = SMOTE(random_state=42)
     X['train'], y['train'] = smote.fit_resample(X['train'], y['train'])
 
-    # 정규화 - MinMaxScaler()
+    # 정규화
     preprocess = MinMaxScaler()
     X = {
         k: torch.tensor(preprocess.fit_transform(v), device=device)
+        # 정규화 X
+        # k: torch.tensor(v, device=device)
         for k, v in X.items()
     }
     y = {k: torch.tensor(v, device=device) for k, v in y.items()}
@@ -167,7 +196,7 @@ for train_index, test_index in kf.split(X_all, y_all):
 
     # Create a dataloader for batches of indices
     # Docs: https://yura52.github.io/zero/reference/api/zero.data.IndexLoader.html
-    batch_size = 32
+    batch_size = 256
     train_loader = zero.data.IndexLoader(len(X['train']), batch_size, device=device)
 
     # Create a progress tracker for early stopping
@@ -175,7 +204,7 @@ for train_index, test_index in kf.split(X_all, y_all):
     progress = zero.ProgressTracker(patience=100)
 
     # 학습
-    n_epochs = 10
+    n_epochs = 100
     report_frequency = len(X['train']) // batch_size // 5
     for epoch in range(1, n_epochs + 1):
         for iteration, batch_idx in enumerate(train_loader):
