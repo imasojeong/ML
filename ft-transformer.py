@@ -1,106 +1,51 @@
 import numpy as np
-import pandas as pd
 import rtdl
 import scipy.special
 from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder, StandardScaler
 import torch
 import torch.nn.functional as F
 import zero
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, mean_squared_error
+from sklearn.metrics import confusion_matrix, accuracy_score, mean_squared_error
 
-accuracy_list = []
-precision_list = []
-recall_list = []
-f1_score_list = []
+pd_list = []
+pf_list = []
+bal_list = []
+fir_list = []
 
 
 def classifier_eval(y_test, y_pred):
     cm = confusion_matrix(y_test, y_pred)
     print('혼동행렬 : ', cm)
-    acc = accuracy_score(y_test, y_pred)
-    print('accuracy_score : ', acc)
-    pre = precision_score(y_test, y_pred)
-    print('precision_score : ', pre)
-    recall = recall_score(y_test, y_pred)
-    print('recall_score : ', recall)
-    f1 = f1_score(y_test, y_pred)
-    print('f1_score : ', f1)
+    PD = cm[1, 1] / (cm[1, 1] + cm[1, 0])
+    print('PD : ', PD)
+    PF = cm[0, 1] / (cm[0, 0] + cm[0, 1])
+    print('PF : ', PF)
+    balance = 1 - (((0 - PF) * (0 - PF) + (1 - PD) * (1 - PD)) / 2)
+    print('balance : ', balance)
+    FI = (cm[1, 1] + cm[0, 1]) / (cm[0, 0] + cm[0, 1] + cm[1, 0] + cm[1, 1])
+    FIR = (PD - FI) / PD
+    print('FIR : ', FIR)
 
-    return acc, pre, recall, f1
-
+    return PD, PF, balance, FIR
 
 device = torch.device('cpu')
 # Docs: https://yura52.github.io/zero/0.0.4/reference/api/zero.improve_reproducibility.html
 zero.improve_reproducibility(seed=123456)
 
+# !!! NOTE !!! The dataset splits, preprocessing and other details are
+# significantly different from those used in the
+# paper "Revisiting Deep Learning Models for Tabular Data",
+# so the results will be different from the reported in the paper.
 
-# 데이터 DataFrame으로 불러오기
-dataset = pd.read_csv('C:/Users/AISELab/Desktop/airline-passenger-satisfaction.csv', encoding='utf-8')
-
-# 데이터 형태 확인
-print(dataset.info)
-
-# 결측치 확인
-print(dataset.isna().sum())
-
-# 결측치 처리(평균으로 대체)
-dataset['Arrival Delay in Minutes'] = dataset['Arrival Delay in Minutes'].fillna(dataset['Arrival Delay in Minutes'].mean())
-print(dataset.isna().sum())
-
-# 레이블 인코딩
-le = LabelEncoder()
-for col in ['Gender', 'Customer Type', 'Type of Travel', 'Class', 'satisfaction']:
-    dataset[col] = le.fit_transform(dataset[col])
-print(dataset)
-
-# 필요없는 feature 제거
-dataset = dataset.drop(['Unnamed: 0', 'id'], axis=1)
-
-# 이상치 제거
-# q1 = dataset['Flight Distance'].quantile(0.25)
-# q3 = dataset['Flight Distance'].quantile(0.75)
-# iqr = q3 - q1
-# condition = dataset['Flight Distance'] > q3 + 1.5 * iqr
-# a = dataset[condition].index
-# dataset.drop(a, inplace=True)
-#
-# q1 = dataset['Departure Delay in Minutes'].quantile(0.25)
-# q3 = dataset['Departure Delay in Minutes'].quantile(0.75)
-# iqr = q3 - q1
-# condition = dataset['Departure Delay in Minutes'] > q3 + 1.5 * iqr
-# a = dataset[condition].index
-# dataset.drop(a, inplace=True)
-#
-# q1 = dataset['Arrival Delay in Minutes'].quantile(0.25)
-# q3 = dataset['Arrival Delay in Minutes'].quantile(0.75)
-# iqr = q3 - q1
-#
-# condition = dataset['Arrival Delay in Minutes'] > q3 + 1.5 * iqr
-# a = dataset[condition].index
-# dataset.drop(a, inplace=True)
-
-
-# 클래스 불균형 확인 (심각한 클래스 불균형 아님 - SMOTE 적용 X)
-# print(dataset['satisfaction'].value_counts())
-
-# # csv로 내보내기
-dataset.to_csv('C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv', index=False)
-#
-# # 데이터 불러오기
-dataset = np.loadtxt("C:/Users/AISELab/Desktop/new_airline-passenger-satisfaction.csv", delimiter=",", skiprows=1, dtype=np.float32)
-# # dataset = np.loadtxt("C:/Users/AISELab/Desktop/EQ.csv", delimiter=",", skiprows=1, dtype=np.float32)
-#
-# # 이진 분류 명시
+dataset = np.loadtxt("C:/Users/sojeong/Desktop/revisiting-models/data/JDT.csv", delimiter=",", skiprows=1, dtype=np.float32)
 task_type = 'binclass'
 
 assert task_type in ['binclass', 'multiclass', 'regression']
 
-# X, y 분류
-X_all = dataset[:, :22]
-y_all = dataset[:, 22]
-
+X_all = dataset[:, :61]
+y_all = dataset[:, 61]
 if task_type != 'regression':
     y_all = LabelEncoder().fit_transform(y_all).astype('int64')
 n_classes = int(max(y_all)) + 1 if task_type == 'multiclass' else None
@@ -115,20 +60,20 @@ for train_index, test_index in kf.split(X_all, y_all):
     X['train'], X['test'] = X_all[train_index], X_all[test_index]
     y['train'], y['test'] = y_all[train_index], y_all[test_index]
 
-    # SMOTE(학습데이터만 진행)
+    # SMOTE(학습 데이터만 진행)
     smote = SMOTE(random_state=42)
     X['train'], y['train'] = smote.fit_resample(X['train'], y['train'])
 
-    # 정규화
+    # not the best way to preprocess features, but enough for the demonstration
+    # 정규화 - MinMaxScaler(), 표준화 - StandardScaler()
     preprocess = MinMaxScaler()
     X = {
         k: torch.tensor(preprocess.fit_transform(v), device=device)
-        # 정규화 X
-        # k: torch.tensor(v, device=device)
         for k, v in X.items()
     }
     y = {k: torch.tensor(v, device=device) for k, v in y.items()}
 
+    # !!! CRUCIAL for neural networks when solving regression problems !!!
     if task_type == 'regression':
         y_mean = y['train'].mean().item()
         y_std = y['train'].std().item()
@@ -182,9 +127,11 @@ for train_index, test_index in kf.split(X_all, y_all):
             prediction.append(apply_model(batch))
         prediction = torch.cat(prediction).squeeze(1).cpu().numpy()
         target = y[part].cpu().numpy()
+        # print("prediction : ", prediction)
 
         if task_type == 'binclass':
-            prediction = np.round(scipy.special.expit(prediction))
+            prediction = np.round(scipy.special.expit(prediction))  # 시그모이드 함수, 음수 양수 기준으로 0과 1 분류?
+            # print("round 후 prediction : ", prediction)
             score = classifier_eval(target, prediction)
         elif task_type == 'multiclass':
             prediction = prediction.argmax(1)
@@ -196,15 +143,17 @@ for train_index, test_index in kf.split(X_all, y_all):
 
     # Create a dataloader for batches of indices
     # Docs: https://yura52.github.io/zero/reference/api/zero.data.IndexLoader.html
-    batch_size = 256
+    batch_size = 32
     train_loader = zero.data.IndexLoader(len(X['train']), batch_size, device=device)
 
     # Create a progress tracker for early stopping
     # Docs: https://yura52.github.io/zero/reference/api/zero.ProgressTracker.html
     progress = zero.ProgressTracker(patience=100)
 
+    # print("Test score before training: ", evaluate("test"))
+
     # 학습
-    n_epochs = 100
+    n_epochs = 50
     report_frequency = len(X['train']) // batch_size // 5
     for epoch in range(1, n_epochs + 1):
         for iteration, batch_idx in enumerate(train_loader):
@@ -218,20 +167,30 @@ for train_index, test_index in kf.split(X_all, y_all):
             if iteration % report_frequency == 0:
                 print(f'(epoch) {epoch} (batch) {iteration} (loss) {loss.item():.4f}')
 
-        test_score = evaluate('test')
+        # val_score = evaluate('val')
 
-        acc, pre, recall, f1 = test_score
-        accuracy_list.append(acc)
-        precision_list.append(pre)
-        recall_list.append(recall)
-        f1_score_list.append(f1)
+        test_score = evaluate('test')  # PD, PF, bal, FIR 반환
+        # print(evaluate)
+        # print(f'Epoch {epoch:03d} | Validation score: {val_score:.4f} | Test score: {test_score:.4f}', end='')
+        # progress.update((-1 if task_type == 'regression' else 1) * val_score)
+        # if progress.success:
+        #     print(' <<< BEST VALIDATION EPOCH', end='')
+        # print()
+        # if progress.fail:
+        #     break
 
-print(accuracy_list)
-print(precision_list)
-print(recall_list)
-print(f1_score_list)
+        PD, PF, bal, FIR = test_score
+        pd_list.append(PD)
+        pf_list.append(PF)
+        bal_list.append(bal)
+        fir_list.append(FIR)
 
-print('avg_accuracy : {}'.format((sum(accuracy_list) / len(accuracy_list))))
-print('avg_precision : {}'.format((sum(precision_list) / len(precision_list))))
-print('avg_recall : {}'.format((sum(recall_list) / len(recall_list))))
-print('avg_f1_score : {}'.format((sum(f1_score_list) / len(f1_score_list))))
+print(pd_list)
+print(pf_list)
+print(bal_list)
+print(fir_list)
+
+print('avg_PD: {}'.format((sum(pd_list) / len(pd_list))))
+print('avg_PF: {}'.format((sum(pf_list) / len(pf_list))))
+print('avg_balance: {}'.format((sum(bal_list) / len(bal_list))))
+print('avg_FIR: {}'.format((sum(fir_list) / len(fir_list))))
